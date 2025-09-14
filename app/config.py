@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     
     # Server settings
     host: str = "0.0.0.0"
-    port: int = 8000
+    port: int = 8001
     debug: bool = True
     
     # OpenAI settings (if needed for advanced analysis)

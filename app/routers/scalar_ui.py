@@ -1,8 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
-from sqlalchemy.orm import Session
 from ..database import get_db
-from ..models import Service, Endpoint
 from app.config import settings
 
 router = APIRouter()
@@ -185,9 +183,9 @@ async def scalar_ui_main():
     """
 
 @router.get("/scalar/service/{service_id}", response_class=HTMLResponse)
-async def scalar_ui_service(service_id: int, db: Session = Depends(get_db)):
+async def scalar_ui_service(service_id: int, db = Depends(get_db)):
     """Scalar UI for a specific service"""
-    service = db.query(Service).filter(Service.id == service_id).first()
+    service = db.get_service(service_id)
     if not service:
         raise HTTPException(status_code=404, detail="Service not found")
     
@@ -195,7 +193,7 @@ async def scalar_ui_service(service_id: int, db: Session = Depends(get_db)):
     <!doctype html>
     <html>
     <head>
-        <title>{service.name} - API Documentation</title>
+        <title>{service["name"]} - API Documentation</title>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <style>
@@ -222,7 +220,7 @@ async def scalar_ui_service(service_id: int, db: Session = Depends(get_db)):
     </head>
     <body>
         <div class="header">
-            <h1>📚 {service.name}</h1>
+            <h1>📚 {service["name"]}</h1>
             <a href="/scalar">← Back to Services</a>
         </div>
         <script
@@ -236,25 +234,25 @@ async def scalar_ui_service(service_id: int, db: Session = Depends(get_db)):
     """
 
 @router.get("/services/{service_id}/openapi.json")
-async def get_service_openapi_spec(service_id: int, db: Session = Depends(get_db)):
+async def get_service_openapi_spec(service_id: int, db = Depends(get_db)):
     """Generate OpenAPI specification for a specific service"""
-    service = db.query(Service).filter(Service.id == service_id).first()
+    service = db.get_service(service_id)
     if not service:
         raise HTTPException(status_code=404, detail="Service not found")
     
     # If service has stored OpenAPI spec, return it
-    if service.openapi_spec:
-        return service.openapi_spec
+    if service.get("openapi_spec"):
+        return service["openapi_spec"]
     
     # Otherwise, generate OpenAPI spec from endpoints
-    endpoints = db.query(Endpoint).filter(Endpoint.service_id == service_id).all()
+    endpoints = db.get_endpoints_by_service(service_id)
     
     openapi_spec = {
         "openapi": "3.0.0",
         "info": {
-            "title": service.name,
-            "description": service.description or "",
-            "version": service.version or "1.0.0"
+            "title": service["name"],
+            "description": service.get("description", ""),
+            "version": service.get("version", "1.0.0")
         },
         "servers": [],
         "paths": {},
@@ -263,29 +261,29 @@ async def get_service_openapi_spec(service_id: int, db: Session = Depends(get_db
         }
     }
     
-    if service.base_url:
+    if service.get("base_url"):
         openapi_spec["servers"].append({
-            "url": service.base_url,
+            "url": service["base_url"],
             "description": "API Server"
         })
     
     # Group endpoints by path
     paths = {}
     for endpoint in endpoints:
-        if endpoint.path not in paths:
-            paths[endpoint.path] = {}
+        if endpoint["path"] not in paths:
+            paths[endpoint["path"]] = {}
         
         operation = {
-            "summary": endpoint.summary or "",
-            "description": endpoint.description or "",
-            "tags": endpoint.tags or [],
+            "summary": endpoint.get("summary", ""),
+            "description": endpoint.get("description", ""),
+            "tags": endpoint.get("tags", []),
             "responses": {}
         }
         
         # Add parameters
-        if endpoint.parameters:
+        if endpoint.get("parameters"):
             parameters = []
-            for param_type, param_list in endpoint.parameters.items():
+            for param_type, param_list in endpoint["parameters"].items():
                 for param in param_list:
                     parameters.append({
                         "name": param.get("name"),
@@ -298,23 +296,23 @@ async def get_service_openapi_spec(service_id: int, db: Session = Depends(get_db
                 operation["parameters"] = parameters
         
         # Add request body
-        if endpoint.request_schema and endpoint.method.upper() in ["POST", "PUT", "PATCH"]:
+        if endpoint.get("request_schema") and endpoint["method"].upper() in ["POST", "PUT", "PATCH"]:
             operation["requestBody"] = {
                 "required": True,
                 "content": {
                     "application/json": {
-                        "schema": endpoint.request_schema
+                        "schema": endpoint["request_schema"]
                     }
                 }
             }
         
         # Add responses
-        if endpoint.response_schema:
+        if endpoint.get("response_schema"):
             operation["responses"]["200"] = {
                 "description": "Successful response",
                 "content": {
                     "application/json": {
-                        "schema": endpoint.response_schema
+                        "schema": endpoint["response_schema"]
                     }
                 }
             }
@@ -323,16 +321,16 @@ async def get_service_openapi_spec(service_id: int, db: Session = Depends(get_db
                 "description": "Successful response"
             }
         
-        paths[endpoint.path][endpoint.method.lower()] = operation
+        paths[endpoint["path"]][endpoint["method"].lower()] = operation
     
     openapi_spec["paths"] = paths
     
     return openapi_spec
 
 @router.get("/openapi-combined.json")
-async def get_combined_openapi_spec(db: Session = Depends(get_db)):
+async def get_combined_openapi_spec(db = Depends(get_db)):
     """Generate combined OpenAPI specification for all services"""
-    services = db.query(Service).filter(Service.is_active == True).all()
+    services = [s for s in db.get_all_services() if s.get("is_active", True)]
     
     combined_spec = {
         "openapi": "3.0.0",
@@ -357,32 +355,32 @@ async def get_combined_openapi_spec(db: Session = Depends(get_db)):
     service_tags = set()
     
     for service in services:
-        endpoints = db.query(Endpoint).filter(Endpoint.service_id == service.id).all()
+        endpoints = db.get_endpoints_by_service(service["id"])
         
         # Add service as a tag
         service_tag = {
-            "name": service.name,
-            "description": service.description or f"Endpoints from {service.name}"
+            "name": service["name"],
+            "description": service.get("description", f"Endpoints from {service['name']}")
         }
-        service_tags.add(service.name)
+        service_tags.add(service["name"])
         
         for endpoint in endpoints:
-            path_key = f"/services/{service.id}/proxy{endpoint.path}"
+            path_key = f"/services/{service['id']}/proxy{endpoint['path']}"
             
             if path_key not in combined_spec["paths"]:
                 combined_spec["paths"][path_key] = {}
             
             operation = {
-                "summary": f"[{service.name}] {endpoint.summary or endpoint.path}",
-                "description": endpoint.description or f"Endpoint from {service.name}",
-                "tags": [service.name] + (endpoint.tags or []),
+                "summary": f"[{service['name']}] {endpoint.get('summary', endpoint['path'])}",
+                "description": endpoint.get("description", f"Endpoint from {service['name']}"),
+                "tags": [service["name"]] + (endpoint.get("tags", [])),
                 "responses": {}
             }
             
             # Add parameters
-            if endpoint.parameters:
+            if endpoint.get("parameters"):
                 parameters = []
-                for param_type, param_list in endpoint.parameters.items():
+                for param_type, param_list in endpoint["parameters"].items():
                     for param in param_list:
                         parameters.append({
                             "name": param.get("name"),
@@ -395,23 +393,23 @@ async def get_combined_openapi_spec(db: Session = Depends(get_db)):
                     operation["parameters"] = parameters
             
             # Add request body
-            if endpoint.request_schema and endpoint.method.upper() in ["POST", "PUT", "PATCH"]:
+            if endpoint.get("request_schema") and endpoint["method"].upper() in ["POST", "PUT", "PATCH"]:
                 operation["requestBody"] = {
                     "required": True,
                     "content": {
                         "application/json": {
-                            "schema": endpoint.request_schema
+                            "schema": endpoint["request_schema"]
                         }
                     }
                 }
             
             # Add responses
-            if endpoint.response_schema:
+            if endpoint.get("response_schema"):
                 operation["responses"]["200"] = {
                     "description": "Successful response",
                     "content": {
                         "application/json": {
-                            "schema": endpoint.response_schema
+                            "schema": endpoint["response_schema"]
                         }
                     }
                 }
@@ -420,10 +418,9 @@ async def get_combined_openapi_spec(db: Session = Depends(get_db)):
                     "description": "Successful response"
                 }
             
-            combined_spec["paths"][path_key][endpoint.method.lower()] = operation
+            combined_spec["paths"][path_key][endpoint["method"].lower()] = operation
     
     # Add service tags
     combined_spec["tags"] = [{"name": tag, "description": f"Endpoints from {tag}"} for tag in sorted(service_tags)]
     
     return combined_spec
-

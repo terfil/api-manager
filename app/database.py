@@ -1,29 +1,12 @@
-from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
-from app.config import settings
+"""
+Database module - Updated to use in-memory cache instead of SQLite
+"""
+from app.cache import get_cache
 
-# Create SQLAlchemy engine
-engine = create_engine(
-    settings.database_url,
-    connect_args={"check_same_thread": False} if "sqlite" in settings.database_url else {}
-)
-
-# Create SessionLocal class
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-# Create Base class for models
-Base = declarative_base()
-
-# Dependency to get database session
+# Dependency to get cache instance
 def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+    return get_cache()
 
-# Create all tables
+# Create tables function is no longer needed for in-memory cache
 def create_tables():
-    Base.metadata.create_all(bind=engine)
-
+    pass

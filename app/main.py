@@ -27,10 +27,50 @@ app.add_middleware(
     allow_headers=settings.allowed_headers,
 )
 
-# Create database tables on startup
+# Load test data on startup for in-memory cache
 @app.on_event("startup")
 async def startup_event():
-    create_tables()
+    from app.database import get_db
+    from app.utils.openapi_parser import OpenAPIParser
+    
+    db = get_db()
+    parser = OpenAPIParser()
+    
+    # Load sample OpenAPI data
+    try:
+        with open("app/test_data/sample_openapi.json", "r") as f:
+            content = f.read()
+        
+        spec, error = parser.parse_from_file_content(content, "sample_openapi.json")
+        
+        if error == "success":
+            # Extract service information
+            service_info = parser.extract_service_info(spec)
+            service = db.create_service(service_info)
+            
+            # Extract and create endpoints
+            endpoints_data = parser.extract_endpoints(spec)
+            for endpoint_data in endpoints_data:
+                endpoint_data["service_id"] = service["id"]
+                db.create_endpoint(endpoint_data)
+            
+            # Create import history record
+            import_record_data = {
+                "source_type": "file",
+                "source_location": "sample_openapi.json",
+                "service_id": service["id"],
+                "status": "success",
+                "error_message": None,
+                "imported_endpoints_count": len(endpoints_data)
+            }
+            db.create_import_history(import_record_data)
+            
+            print(f"Loaded test data: {service['name']} with {len(endpoints_data)} endpoints")
+        else:
+            print(f"Failed to parse test data: {error}")
+            
+    except Exception as e:
+        print(f"Error loading test data: {e}")
 
 # Include routers
 app.include_router(services.router, prefix="/api/v1", tags=["services"])
@@ -114,4 +154,3 @@ if __name__ == "__main__":
         port=settings.port,
         reload=settings.debug
     )
-
