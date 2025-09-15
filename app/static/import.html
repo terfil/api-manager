@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Import Swagger JSON - API Management Service</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #007acc;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #333;
+        }
+        input[type="text"], input[type="file"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        input[type="file"] {
+            padding: 8px;
+        }
+        button {
+            background-color: #007acc;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            width: 100%;
+        }
+        button:hover {
+            background-color: #005a9e;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 4px;
+            display: none;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .loading {
+            text-align: center;
+            display: none;
+        }
+        .back-link {
+            display: block;
+            text-align: center;
+            margin-top: 20px;
+            color: #007acc;
+            text-decoration: none;
+        }
+        .back-link:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📥 Import Swagger JSON</h1>
+        
+        <form id="importForm">
+            <div class="form-group">
+                <label for="swaggerFile">Swagger JSON File:</label>
+                <input type="file" id="swaggerFile" name="file" accept=".json" required>
+                <small>Select a Swagger 2.0 JSON file to import</small>
+            </div>
+            
+            <div class="form-group">
+                <label for="serviceName">Service Name (Optional):</label>
+                <input type="text" id="serviceName" name="service_name" placeholder="Custom service name">
+                <small>If not provided, the service name will be extracted from the Swagger file</small>
+            </div>
+            
+            <div class="form-group">
+                <label for="serviceDescription">Service Description (Optional):</label>
+                <input type="text" id="serviceDescription" name="service_description" placeholder="Custom service description">
+                <small>If not provided, the description will be extracted from the Swagger file</small>
+            </div>
+            
+            <button type="submit">Import Service</button>
+        </form>
+        
+        <div id="loading" class="loading">
+            <p>⏳ Importing service, please wait...</p>
+        </div>
+        
+        <div id="result" class="result"></div>
+        
+        <a href="/" class="back-link">← Back to Home</a>
+    </div>
+
+    <script>
+        document.getElementById('importForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData();
+            const fileInput = document.getElementById('swaggerFile');
+            const serviceName = document.getElementById('serviceName').value;
+            const serviceDescription = document.getElementById('serviceDescription').value;
+            
+            if (fileInput.files.length === 0) {
+                showResult('Please select a Swagger JSON file', 'error');
+                return;
+            }
+            
+            formData.append('file', fileInput.files[0]);
+            if (serviceName) formData.append('service_name', serviceName);
+            if (serviceDescription) formData.append('service_description', serviceDescription);
+            
+            // Show loading state
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('result').style.display = 'none';
+            
+            try {
+                const response = await fetch('/api/v1/services/import/swagger', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    showResult(`✅ Successfully imported service!<br>
+                        Service ID: ${result.service_id}<br>
+                        Imported ${result.imported_endpoints_count} endpoints<br>
+                        Status: ${result.status}`, 'success');
+                } else {
+                    showResult(`❌ Import failed: ${result.error_message || 'Unknown error'}`, 'error');
+                }
+            } catch (error) {
+                showResult(`❌ Network error: ${error.message}`, 'error');
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+            }
+        });
+        
+        function showResult(message, type) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = message;
+            resultDiv.className = `result ${type}`;
+            resultDiv.style.display = 'block';
+        }
+    </script>
+</body>
+</html>

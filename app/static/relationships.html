@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Model Relationships - API Management Service</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #007acc;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .controls {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        select, button {
+            padding: 10px 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        button {
+            background-color: #007acc;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #005a9e;
+        }
+        .visualization {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 20px;
+            min-height: 500px;
+            background-color: #fafafa;
+        }
+        .relationship-graph {
+            width: 100%;
+            height: 500px;
+            border: 1px solid #eee;
+            border-radius: 4px;
+        }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+        .error {
+            color: #dc3545;
+            padding: 20px;
+            background-color: #f8d7da;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .relationship-item {
+            background: white;
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 10px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        .relationship-type {
+            font-weight: bold;
+            color: #007acc;
+            margin-right: 10px;
+        }
+        .model-name {
+            font-weight: bold;
+            color: #28a745;
+        }
+        .service-name {
+            color: #6c757d;
+            font-size: 0.9em;
+        }
+        .relationship-details {
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid #eee;
+        }
+        .back-link {
+            display: block;
+            text-align: center;
+            margin-top: 20px;
+            color: #007acc;
+            text-decoration: none;
+        }
+        .back-link:hover {
+            text-decoration: underline;
+        }
+        .filters {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+        .filter-group {
+            margin-bottom: 10px;
+        }
+        .filter-label {
+            font-weight: bold;
+            margin-right: 10px;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/vis-network@9.1.2/dist/vis-network.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/vis-network@9.1.2/styles/vis-network.min.css" rel="stylesheet" />
+</head>
+<body>
+    <div class="container">
+        <h1>🔗 Model Relationships Explorer</h1>
+        
+        <div class="filters">
+            <div class="filter-group">
+                <span class="filter-label">Service:</span>
+                <select id="serviceFilter">
+                    <option value="">All Services</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <span class="filter-label">Relationship Type:</span>
+                <select id="relationshipTypeFilter">
+                    <option value="">All Types</option>
+                    <option value="reference">References</option>
+                    <option value="composition">Composition</option>
+                    <option value="inheritance">Inheritance</option>
+                    <option value="dependency">Dependency</option>
+                </select>
+            </div>
+            <button onclick="loadRelationships()">Apply Filters</button>
+            <button onclick="visualizeGraph()" style="background-color: #28a745;">Visualize Graph</button>
+        </div>
+
+        <div id="loading" class="loading">
+            <p>⏳ Loading relationships...</p>
+        </div>
+
+        <div id="error" class="error" style="display: none;"></div>
+
+        <div id="relationshipsList" style="display: none;">
+            <h2>Discovered Relationships</h2>
+            <div id="relationshipsContainer"></div>
+        </div>
+
+        <div id="graphVisualization" class="visualization" style="display: none;">
+            <h2>Relationship Graph</h2>
+            <div id="relationshipGraph" class="relationship-graph"></div>
+        </div>
+
+        <a href="/" class="back-link">← Back to Home</a>
+    </div>
+
+    <script>
+        let allRelationships = [];
+        let allServices = [];
+
+        // Load services and relationships on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            loadServices();
+            loadRelationships();
+        });
+
+        async function loadServices() {
+            try {
+                const response = await fetch('/api/v1/services');
+                const services = await response.json();
+                allServices = services;
+                
+                const serviceFilter = document.getElementById('serviceFilter');
+                serviceFilter.innerHTML = '<option value="">All Services</option>';
+                
+                services.forEach(service => {
+                    const option = document.createElement('option');
+                    option.value = service.id;
+                    option.textContent = service.name;
+                    serviceFilter.appendChild(option);
+                });
+            } catch (error) {
+                console.error('Error loading services:', error);
+            }
+        }
+
+        async function loadRelationships() {
+            const serviceId = document.getElementById('serviceFilter').value;
+            const relationshipType = document.getElementById('relationshipTypeFilter').value;
+            
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('error').style.display = 'none';
+            document.getElementById('relationshipsList').style.display = 'none';
+            document.getElementById('graphVisualization').style.display = 'none';
+
+            try {
+                let url = '/api/v1/relationships';
+                const params = new URLSearchParams();
+                
+                if (serviceId) params.append('service_id', serviceId);
+                if (relationshipType) params.append('relationship_type', relationshipType);
+                
+                if (params.toString()) {
+                    url += '?' + params.toString();
+                }
+
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const responseData = await response.json();
+                allRelationships = responseData.relationships || [];
+                displayRelationships(allRelationships);
+                
+            } catch (error) {
+                showError(`Failed to load relationships: ${error.message}`);
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+
+        function displayRelationships(relationships) {
+            const container = document.getElementById('relationshipsContainer');
+            container.innerHTML = '';
+
+            if (relationships.length === 0) {
+                container.innerHTML = '<p>No relationships found matching the current filters.</p>';
+                document.getElementById('relationshipsList').style.display = 'block';
+                return;
+            }
+
+            relationships.forEach(relationship => {
+                const relationshipItem = document.createElement('div');
+                relationshipItem.className = 'relationship-item';
+                
+                const sourceService = allServices.find(s => s.id === relationship.source_service_id) || {};
+                const targetService = allServices.find(s => s.id === relationship.target_service_id) || {};
+                
+                relationshipItem.innerHTML = `
+                    <div>
+                        <span class="relationship-type">${relationship.relationship_type.toUpperCase()}</span>
+                        relationship from
+                        <span class="model-name">${relationship.source_model_name}</span>
+                        <span class="service-name">(${sourceService.name || 'Unknown Service'})</span>
+                        to
+                        <span class="model-name">${relationship.target_model_name}</span>
+                        <span class="service-name">(${targetService.name || 'Unknown Service'})</span>
+                    </div>
+                    <div class="relationship-details">
+                        <strong>Confidence:</strong> ${(relationship.confidence_score * 100).toFixed(1)}%<br>
+                        <strong>Relationship Path:</strong> ${relationship.relationship_path || 'N/A'}<br>
+                        <strong>Description:</strong> ${relationship.description || 'No description available'}
+                    </div>
+                `;
+                
+                container.appendChild(relationshipItem);
+            });
+
+            document.getElementById('relationshipsList').style.display = 'block';
+        }
+
+        function visualizeGraph() {
+            const container = document.getElementById('relationshipGraph');
+            document.getElementById('graphVisualization').style.display = 'block';
+            document.getElementById('relationshipsList').style.display = 'none';
+
+            // Create nodes and edges for the graph
+            const nodes = new vis.DataSet();
+            const edges = new vis.DataSet();
+
+            // Add services as groups
+            const serviceNodes = {};
+            allServices.forEach(service => {
+                const nodeId = `service_${service.id}`;
+                serviceNodes[service.id] = nodeId;
+                nodes.add({
+                    id: nodeId,
+                    label: service.name,
+                    group: service.id,
+                    shape: 'box',
+                    color: getServiceColor(service.id),
+                    font: { size: 16, face: 'Arial' },
+                    margin: 10
+                });
+            });
+
+            // Add models and relationships
+            const modelNodes = new Set();
+            
+            allRelationships.forEach(relationship => {
+                const sourceModelId = `model_${relationship.source_service_id}_${relationship.source_model_name}`;
+                const targetModelId = `model_${relationship.target_service_id}_${relationship.target_model_name}`;
+
+                // Add source model node if not exists
+                if (!modelNodes.has(sourceModelId)) {
+                    const sourceService = allServices.find(s => s.id === relationship.source_service_id);
+                    nodes.add({
+                        id: sourceModelId,
+                        label: relationship.source_model_name,
+                        group: relationship.source_service_id,
+                        shape: 'ellipse',
+                        color: getServiceColor(relationship.source_service_id),
+                        font: { size: 14 }
+                    });
+                    modelNodes.add(sourceModelId);
+
+                    // Connect model to its service
+                    edges.add({
+                        from: serviceNodes[relationship.source_service_id],
+                        to: sourceModelId,
+                        arrows: 'to',
+                        dashes: true,
+                        color: { color: '#ccc' }
+                    });
+                }
+
+                // Add target model node if not exists
+                if (!modelNodes.has(targetModelId)) {
+                    const targetService = allServices.find(s => s.id === relationship.target_service_id);
+                    nodes.add({
+                        id: targetModelId,
+                        label: relationship.target_model_name,
+                        group: relationship.target_service_id,
+                        shape: 'ellipse',
+                        color: getServiceColor(relationship.target_service_id),
+                        font: { size: 14 }
+                    });
+                    modelNodes.add(targetModelId);
+
+                    // Connect model to its service
+                    edges.add({
+                        from: serviceNodes[relationship.target_service_id],
+                        to: targetModelId,
+                        arrows: 'to',
+                        dashes: true,
+                        color: { color: '#ccc' }
+                    });
+                }
+
+                // Add relationship edge
+                edges.add({
+                    from: sourceModelId,
+                    to: targetModelId,
+                    label: relationship.relationship_type,
+                    arrows: 'to',
+                    color: getRelationshipColor(relationship.relationship_type),
+                    font: { size: 12 },
+                    width: 2
+                });
+            });
+
+            // Create the network
+            const data = {
+                nodes: nodes,
+                edges: edges
+            };
+
+            const options = {
+                layout: {
+                    hierarchical: {
+                        enabled: true,
+                        direction: 'UD',
+                        sortMethod: 'directed'
+                    }
+                },
+                physics: {
+                    enabled: true,
+                    hierarchicalRepulsion: {
+                        nodeDistance: 120
+                    }
+                },
+                interaction: {
+                    dragNodes: true,
+                    zoomView: true,
+                    dragView: true
+                }
+            };
+
+            new vis.Network(container, data, options);
+        }
+
+        function getServiceColor(serviceId) {
+            const colors = ['#007acc', '#28a745', '#dc3545', '#ffc107', '#17a2b8', '#6f42c1'];
+            return colors[serviceId % colors.length];
+        }
+
+        function getRelationshipColor(relationshipType) {
+            const colors = {
+                'reference': '#007acc',
+                'composition': '#28a745',
+                'inheritance': '#dc3545',
+                'dependency': '#ffc107'
+            };
+            return colors[relationshipType] || '#6c757d';
+        }
+
+        function showError(message) {
+            const errorDiv = document.getElementById('error');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+        }
+    </script>
+</body>
+</html>

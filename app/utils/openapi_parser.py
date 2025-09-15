@@ -89,8 +89,65 @@ class OpenAPIParser:
         validate(instance=spec, schema=self.openapi_schema)
         
         # Additional validation
-        if not spec.get("openapi", "").startswith(("3.", "2.")):
-            raise ValidationError("Unsupported OpenAPI version")
+        openapi_version = spec.get("openapi", "")
+        swagger_version = spec.get("swagger", "")
+        
+        # Support both OpenAPI 3.x and Swagger 2.x
+        if not (openapi_version.startswith(("3.", "2.")) or 
+                swagger_version.startswith("2.")):
+            raise ValidationError("Unsupported OpenAPI/Swagger version")
+        
+        # Additional Swagger 2.x specific validation
+        if swagger_version.startswith("2."):
+            self._validate_swagger_spec(spec)
+    def _validate_swagger_spec(self, spec: Dict[str, Any]) -> None:
+        """Validate Swagger 2.x specification structure"""
+        # Basic Swagger 2.x validation
+        if not spec.get("info"):
+            raise ValidationError("Missing 'info' section in Swagger spec")
+        
+        if not spec.get("paths"):
+            raise ValidationError("Missing 'paths' section in Swagger spec")
+        
+        info = spec["info"]
+        if not info.get("title"):
+            raise ValidationError("Missing 'title' in Swagger info section")
+        
+        if not info.get("version"):
+            raise ValidationError("Missing 'version' in Swagger info section")
+    
+    def is_swagger_spec(self, spec: Dict[str, Any]) -> bool:
+        """Check if the specification is a Swagger 2.x or OpenAPI 3.x spec"""
+        swagger_version = spec.get("swagger", "")
+        openapi_version = spec.get("openapi", "")
+        
+        # Support both Swagger 2.x and OpenAPI 3.x specifications
+        return (swagger_version.startswith("2.") or 
+                openapi_version.startswith(("3.", "2.")))
+    
+    def convert_swagger_to_openapi(self, swagger_spec: Dict[str, Any]) -> Dict[str, Any]:
+        """Convert Swagger 2.x spec to OpenAPI 3.x format (basic conversion)"""
+        if not self.is_swagger_spec(swagger_spec):
+            return swagger_spec
+        
+        # Basic conversion - in a real implementation, you'd want a more comprehensive conversion
+        openapi_spec = swagger_spec.copy()
+        openapi_spec["openapi"] = "3.0.0"
+        
+        # Convert host + basePath to servers
+        host = swagger_spec.get("host", "")
+        base_path = swagger_spec.get("basePath", "")
+        if host:
+            server_url = f"https://{host}{base_path}" if host.startswith("http") else f"http://{host}{base_path}"
+            openapi_spec["servers"] = [{"url": server_url}]
+        
+        # Remove Swagger-specific fields
+        openapi_spec.pop("swagger", None)
+        openapi_spec.pop("host", None)
+        openapi_spec.pop("basePath", None)
+        openapi_spec.pop("schemes", None)
+        
+        return openapi_spec
     
     def extract_service_info(self, spec: Dict[str, Any]) -> Dict[str, Any]:
         """Extract service information from OpenAPI spec"""
@@ -242,4 +299,3 @@ class OpenAPIParser:
             models.append(model)
         
         return models
-
